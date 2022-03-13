@@ -12,7 +12,6 @@ public class SingleTask implements BaseTask {
     private final Consumer<Status> callback;
     private Status status;
 
-
     public SingleTask(Integer id, Integer counter, String query, Consumer<Status> callback) {
         this.id = id;
         this.type = Type.SINGLE;

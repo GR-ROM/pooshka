@@ -1,7 +1,5 @@
 import com.github.javafaker.Faker;
 
-import java.lang.annotation.Target;
-import java.sql.SQLException;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -11,18 +9,22 @@ public class Main {
 
     public static final int THREAD_NUM = 20;
     public static final int QUEUE_CAPACITY = 20000;
-    public static final String url = "jdbc:mysql://192.168.0.101:3310/vodman_perm";
+    public static final String url = "jdbc:mysql://192.168.0.222:3307/vodman_perm";
     private static final String user = "root";
-    private static final String password = "pass";
+    private static final String password = "password";
 
-    public static List<String> genBatch(int size) {
-        List<String> batchList = new ArrayList<>();
+    public static List<List<Object>> genBatch(int size) {
+        List<List<Object>> parameters = new ArrayList<>();
         Faker faker = new Faker();
         Random random = new Random();
         for (int i=0;i!=size;i++) {
-            batchList.add("INSERT INTO person_v2 (first_name, last_name, second_name) VALUES ('" + faker.name().firstName() + "', '" + faker.name().lastName() + "', '" + faker.name().username() + "')");
+            List<Object> batchList = new ArrayList<>();
+            batchList.add(faker.name().firstName());
+            batchList.add(faker.name().lastName());
+            batchList.add(faker.name().username());
+            parameters.add(batchList);
         }
-        return batchList;
+        return parameters;
     }
 
     public static void main(String[] args) {
@@ -79,19 +81,25 @@ public class Main {
             }
         });
         thread.start();
-
-        for (int i=0;i!=100000;i++) {
+        Job job = null;
+        for (int i=0;i!=1000;i++) {
             try {
                 List<BaseTask> tasks = new ArrayList<>();
-                tasks.add(new BatchTask(i, 1, genBatch(10), cb));
-                loadTest.getJobQueue().put(new Job(i, false, 0, tasks));
+                tasks.add(new ParametrizedBatchTask(i,
+                        "INSERT INTO person_v2 (first_name, second_name, last_name) VALUES (?, ?, ?)",
+                        genBatch(1000),
+                        cb));
+                job = new Job(i, false, 0, tasks);
+                loadTest.getJobQueue().put(job);
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
         }
 
         try {
-            loadTest.waitForComplete();
+            synchronized (job) {
+                job.wait();
+            }
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
@@ -99,6 +107,6 @@ public class Main {
         thread.interrupt();
         timer.cancel();
         loadTest.stop();
-        System.out.println("All threads terminated");
+        System.out.println("All threads are terminated");
     }
 }

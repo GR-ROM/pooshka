@@ -33,6 +33,11 @@ public class CompletionTask implements BaseTask {
     }
 
     @Override
+    public String getQuery() {
+        return null;
+    }
+
+    @Override
     public Consumer<Status> getCallback() {
         return callback;
     }

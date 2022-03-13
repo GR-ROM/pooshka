@@ -1,4 +1,5 @@
 import java.sql.*;
+import java.util.List;
 
 public class Worker implements Runnable {
 
@@ -36,31 +37,49 @@ public class Worker implements Runnable {
                             long delta = 0;
                             for (int i = 0; i != baseTask.getCounter(); i++) {
                                 try {
-                                    if (baseTask.getType().equals(BaseTask.Type.PREPARED_STATEMENT)) {
-                                        PreparedStatement preparedStatement = connection.prepareStatement(((SingleTask) baseTask).getQuery());
+                                    if (baseTask.getType().equals(BaseTask.Type.BATCH)) {
+                                        PreparedStatement preparedStatement = connection.prepareStatement(baseTask.getQuery());
+                                        for (List<Object> parameters : ((ParametrizedBatchTask)baseTask).getParameters()) {
+                                            preparedStatement.clearParameters();
+                                            for (Object parameter : parameters) {
+                                                try {
+                                                    if (parameter instanceof String) {
+                                                        preparedStatement.setString(parameters.indexOf(parameter) + 1, (String) parameter);
+                                                    }
+                                                    if (parameter instanceof Integer) {
+                                                        preparedStatement.setInt(parameters.indexOf(parameter) + 1, (Integer) parameter);
+                                                    }
+                                                    if (parameter instanceof Long) {
+                                                        preparedStatement.setLong(parameters.indexOf(parameter) + 1, (Long) parameter);
+                                                    }
+                                                }
+                                                catch (SQLException e) {
+                                                    System.out.println("Wrong parameter");
+                                                    throw new SQLException("Wrong parameter");
+                                                }
+                                            }
+                                            preparedStatement.addBatch();
+                                        }
+                                        delta = System.currentTimeMillis();
+                                        preparedStatement.executeBatch();
+                                        delta = System.currentTimeMillis() - delta;
+                                        loadTest.getRequestPerSecond().addAndGet(((ParametrizedBatchTask)baseTask).getParameters().size());
                                     } else {
                                         Statement statement = connection.createStatement();
                                         if (baseTask.getType() == BaseTask.Type.SINGLE) {
                                             delta = System.currentTimeMillis();
-                                            statement.execute(((SingleTask) baseTask).getQuery());
+                                            statement.execute(baseTask.getQuery());
                                             delta = System.currentTimeMillis() - delta;
                                             ((SingleTask) baseTask).setResultSet(statement.getResultSet());
                                             loadTest.getRequestPerSecond().incrementAndGet();
                                         }
-                                        if (baseTask.getType() == BaseTask.Type.BATCH) {
-                                            for (int b = 0; b != ((BatchTask) baseTask).getQueryBatch().size(); b++) {
-                                                statement.addBatch(((BatchTask) baseTask).getQueryBatch().get(i));
-                                            }
-                                            delta = System.currentTimeMillis();
-                                            statement.executeBatch();
-                                            loadTest.getRequestPerSecond().addAndGet(((BatchTask) baseTask).getQueryBatch().size());
-                                            delta = System.currentTimeMillis() - delta;
-                                        }
-                                        baseTask.getStatus().setCode(Status.Code.OK);
-                                        baseTask.getStatus().setExecutionTimeMillis(delta);
                                     }
+                                    baseTask.getStatus().setCode(Status.Code.OK);
+                                    baseTask.getStatus().setExecutionTimeMillis(delta);
                                 } catch (SQLException e) {
-                                    delta = System.currentTimeMillis() - delta;
+                                    if (delta != 0) {
+                                        delta = System.currentTimeMillis() - delta;
+                                    }
                                     baseTask.getStatus().setCode(Status.Code.FAILED);
                                     baseTask.getStatus().setExecutionTimeMillis(delta);
                                 }
@@ -68,6 +87,9 @@ public class Worker implements Runnable {
                                 // loadTest.getStatusQueue().put(task.getStatus());
                             }
                         });
+                        synchronized (job) {
+                            job.notify();
+                        }
                     }
                 }
             }
